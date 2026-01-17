@@ -26,4 +26,4 @@ test_*.json
 *_medasr.*
 
 # Native build output (optional; keep if you want to commit it)
-# native/audiocapture
+native/audiocapture
