@@ -1,0 +1,19 @@
+# MedASR Configuration
+
+models:
+  medasr: google/medasr
+  medgemma: google/medgemma-1.5-4b-it
+  lm_path: models/lm_6.kenlm
+
+transcription:
+  chunk_length_s: 30
+  stride_length_s: 5
+  use_lm: true  # For file transcription
+
+live:
+  use_lm: false  # Faster without LM for real-time
+  chunk_length_s: 5
+  save_folder: transcripts/
+
+qa:
+  context_words: 2000  # Recent words to include in context
