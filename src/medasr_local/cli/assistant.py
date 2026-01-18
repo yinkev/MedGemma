@@ -181,6 +181,8 @@ def main() -> None:
 
         cfg = yaml.safe_load(config_path.read_text())
         model_name = cfg.get("models", {}).get("medasr", model_name)
+        if (project / model_name).exists():
+            model_name = str((project / model_name).resolve())
         lm_rel = cfg.get("models", {}).get("lm_path", "models/lm_6.kenlm")
         kenlm_path = project / lm_rel
 
