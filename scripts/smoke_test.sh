@@ -24,17 +24,63 @@ if [[ -d "$MEDASR_DIR/models/medasr" ]]; then
     fail "models/medasr contains symlinks"
   fi
 fi
+
 if [[ -d "$MEDASR_DIR/models/medgemma" ]]; then
   if [[ -n "$(find "$MEDASR_DIR/models/medgemma" -type l -print -quit 2>/dev/null)" ]]; then
     fail "models/medgemma contains symlinks"
   fi
+  if [[ ! -f "$MEDASR_DIR/models/medgemma/processor_config.json" ]]; then
+    fail "models/medgemma missing processor_config.json"
+  fi
+  if [[ ! -f "$MEDASR_DIR/models/medgemma/preprocessor_config.json" ]]; then
+    fail "models/medgemma missing preprocessor_config.json"
+  fi
 fi
 
-run_quiet "medasr-transcribe --help" "$MEDASR_DIR/bin/medasr-transcribe" --help
-run_quiet "medasr-stream --help" "$MEDASR_DIR/bin/medasr-stream" --help
-run_quiet "medasr-assistant --help" "$MEDASR_DIR/bin/medasr-assistant" --help
-run_quiet "medasr-ask --help" "$MEDASR_DIR/bin/medasr-ask" --help
-run_quiet "medasr-speak --help" "$MEDASR_DIR/bin/medasr-speak" --help
+if ! command -v python3 >/dev/null 2>&1; then
+  fail "python3 not found"
+fi
+
+if python3 - <<'PY'
+import ast
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+errors = 0
+for path in sorted(root.rglob('*.py')):
+    try:
+        ast.parse(path.read_text(encoding='utf-8'))
+    except Exception as e:
+        errors += 1
+        print(f"{path}: {e}", file=sys.stderr)
+
+if errors:
+    raise SystemExit(1)
+PY
+"$MEDASR_DIR/src" >/dev/null 2>&1; then
+  pass "python parse src"
+else
+  fail "python parse src"
+fi
+
+if [[ -x "$MEDASR_DIR/.venv/bin/python" ]]; then
+  run_quiet "medasr-transcribe --help" "$MEDASR_DIR/bin/medasr-transcribe" --help
+  run_quiet "medasr-stream --help" "$MEDASR_DIR/bin/medasr-stream" --help
+  run_quiet "medasr-assistant --help" "$MEDASR_DIR/bin/medasr-assistant" --help
+else
+  skip ".venv missing (skipping ASR runtime checks)"
+fi
+
+if [[ -x "$MEDASR_DIR/.venv314/bin/python" ]]; then
+  run_quiet "medasr-ask --help" "$MEDASR_DIR/bin/medasr-ask" --help
+  run_quiet "medasr-speak --help" "$MEDASR_DIR/bin/medasr-speak" --help
+  run_quiet "medasr-mm-service --help" "$MEDASR_DIR/bin/medasr-mm-service" --help
+  run_quiet "medasr-pathlab --help" "$MEDASR_DIR/bin/medasr-pathlab" --help
+  run_quiet "medasr-radtutor --help" "$MEDASR_DIR/bin/medasr-radtutor" --help
+else
+  skip ".venv314 missing (skipping QA/TTS runtime checks)"
+fi
 
 if [[ "${MEDASR_SMOKE_E2E:-0}" != "1" ]]; then
   skip "Set MEDASR_SMOKE_E2E=1 to run end-to-end transcribe"
