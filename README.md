@@ -58,7 +58,11 @@ MedASR/
 │   ├── medasr-transcribe         # Batch transcription
 │   ├── medasr-ask                # Q&A mode
 │   ├── medasr-speak              # TTS test
-│   └── medasr-assistant          # Live assistant
+│   ├── medasr-stream             # Streaming JSON events
+│   ├── medasr-assistant          # Live assistant
+│   ├── medasr-pathlab            # Pathology lab (image)
+│   ├── medasr-radtutor           # Radiology tutor (image)
+│   └── medasr-mm-service         # MedGemma multimodal JSONL service
 │
 ├── src/medasr_local/             # Core library (959 LOC)
 │   ├── asr/                      # Speech recognition
@@ -87,11 +91,13 @@ MedASR/
 │   ├── install-quick-action.sh   # Quick Action installer
 │   └── Install-Quick-Action.md   # Manual instructions
 │
-├── models/                       # Downloaded models
-│   └── lm_6.kenlm                # 6-gram language model (704MB)
+├── models/                       # Local models (offline runtime)
+│   ├── lm_6.kenlm                # 6-gram language model (704MB)
+│   ├── medasr/                   # Localized MedASR snapshot (no symlinks)
+│   └── medgemma/                 # Localized MedGemma snapshot (no symlinks)
 │
 ├── .venv/                        # Python 3.11 (ASR runtime)
-│   └── ...                       # torch, pyctcdecode, kenlm
+│   └── ...                       # torch, transformers, pyctcdecode, kenlm
 │
 ├── .venv314/                     # Python 3.14 (QA/TTS runtime)
 │   └── ...                       # transformers, pocket-tts
@@ -120,9 +126,18 @@ MedASR/
 This will:
 1. Create dual Python environments (.venv + .venv314)
 2. Install dependencies (torch, transformers, pyctcdecode, kenlm, pocket-tts)
-3. Download MedASR model + 6gLM (~1.5GB)
-4. Download MedGemma tokenizer
+3. Download MedASR model + 6gLM (~1.5GB) and materialize to `models/medasr`
+4. Download MedGemma model snapshot and materialize to `models/medgemma`
 5. Compile native audio capture helper
+
+### Smoke Test
+
+```bash
+./scripts/smoke_test.sh
+
+# Optional: run an end-to-end transcribe (requires ffmpeg + localized models)
+MEDASR_SMOKE_E2E=1 ./scripts/smoke_test.sh
+```
 
 ### Install Finder Quick Action
 
@@ -168,7 +183,25 @@ bin/medasr-transcribe lecture.mp4 --no-lm
 
 Ask questions about a transcript using MedGemma 1.5.
 
-Note: `src/medasr_local/qa/medgemma.py` currently uses text-only prompts (no image inputs wired yet).
+### 2b. Multimodal (Images)
+
+Pathology-style report:
+
+```bash
+bin/medasr-pathlab path.png
+```
+
+Radiology tutoring (single question):
+
+```bash
+bin/medasr-radtutor cxr.png --json
+```
+
+Radiology tutoring (interactive session):
+
+```bash
+bin/medasr-radtutor cxr.png --interactive
+```
 
 ```bash
 # Single question
@@ -195,8 +228,9 @@ bin/medasr-assistant
 **Options:**
 ```bash
 bin/medasr-assistant --no-lm          # Faster ASR (less accurate)
+bin/medasr-assistant --lm             # Enable KenLM (if configured)
 bin/medasr-assistant --voice alba     # Change TTS voice
-bin/medasr-assistant --chunk-s 3.0    # Shorter ASR chunks (more responsive)
+bin/medasr-assistant --chunk-s 3.0    # Override config live.chunk_length_s
 ```
 
 ### 4. TTS Test
@@ -276,8 +310,8 @@ Edit `config.yaml` to customize:
 
 ```yaml
 models:
-  medasr: google/medasr
-  medgemma: google/medgemma-1.5-4b-it
+  medasr: models/medasr
+  medgemma: models/medgemma
   lm_path: models/lm_6.kenlm
 
 transcription:
@@ -323,6 +357,24 @@ qa:
 - Use `--no-lm` flag for faster/lighter processing
 - Close other applications
 
+## MedASRBar (Prototype)
+
+A SwiftUI menu bar prototype lives at `macos/MedASRBar`.
+
+Current constraints (dev-only):
+- Assumes the app runs inside the repo (it searches upwards for `src/medasr_local`).
+- Assumes a pre-built backend at `.venv/bin/python` and a localized ASR snapshot at `models/medasr`.
+- Forces offline runtime flags (`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`) when spawning the Python backend.
+
+To make it shippable without bundling gated weights:
+- Make backend relocatable: ship a signed/notarized backend (Python + deps) inside the app, or ship a separate installer that lays down the runtime under `~/Library/Application Support/MedASR/`.
+- Add first-run “Locate Models” flow: user selects existing `models/medasr` and `models/medgemma` directories (created by `setup.sh` / materialize scripts). Persist security-scoped bookmarks and validate on launch.
+- Never download in-app: keep the app/backend strictly offline; require the user to acquire gated weights out-of-band and import a pre-materialized snapshot folder.
+- Store caches/config in Application Support: set `HF_HOME`/`TRANSFORMERS_CACHE` to an app-owned cache dir to avoid touching repo-relative paths.
+- Sandbox and entitlements: wire up microphone + screen recording usage strings; if you sandbox, make sure file access uses security-scoped bookmarks.
+- Keep offline-only guarantees: continue setting `HF_HUB_OFFLINE=1`/`TRANSFORMERS_OFFLINE=1` for the backend process; fail fast with a clear message if weights are missing.
+- Distribution path: notarize a DMG/PKG for non–App Store distribution; App Store is likely incompatible with shipping a Python+torch runtime and dynamic model loading.
+
 ## Roadmap (Not Implemented Yet)
 
 - True streaming captions (stable prefix + editable tail) for mic and system audio
@@ -353,8 +405,8 @@ See individual model cards for details.
 
 ## Credits
 
-- **MedASR**: [google/medasr](https://huggingface.co/google/medasr)
-- **MedGemma**: [google/medgemma-1.5-4b-it](https://huggingface.co/google/medgemma-1.5-4b-it)
+- **MedASR** (upstream model card): https://huggingface.co/google/medasr
+- **MedGemma** (upstream model card): https://huggingface.co/google/medgemma-1.5-4b-it
 - **Pocket-TTS**: [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts)
 - **pyctcdecode**: [kensho-technologies/pyctcdecode](https://github.com/kensho-technologies/pyctcdecode)
 
@@ -365,8 +417,7 @@ This is a personal project. Feel free to fork and adapt for your needs.
 ## Support
 
 For issues with:
-- **MedASR model**: See [HuggingFace model card](https://huggingface.co/google/medasr)
-- **MedGemma model**: See [HuggingFace model card](https://huggingface.co/google/medgemma-1.5-4b-it)
+- **MedASR model** (upstream): https://huggingface.co/google/medasr
+- **MedGemma model** (upstream): https://huggingface.co/google/medgemma-1.5-4b-it
 - **Pocket-TTS**: See [GitHub repo](https://github.com/kyutai-labs/pocket-tts)
 - **This integration**: Open an issue on GitHub
-# MedGemma

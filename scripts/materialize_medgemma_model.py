@@ -35,6 +35,26 @@ def main() -> None:
 
     if dest.exists():
         print(f"Already exists: {dest}")
+
+        print(f"Syncing missing processor files into {dest}…", flush=True)
+
+        print(f"Locating cached snapshot for {args.repo_id}…", flush=True)
+        snapshot_dir = Path(
+            snapshot_download(repo_id=args.repo_id, local_files_only=True)
+        ).resolve()
+
+        for name in ("preprocessor_config.json", "processor_config.json"):
+            src = snapshot_dir / name
+            dst = dest / name
+            if dst.exists():
+                continue
+            if not src.exists():
+                raise SystemExit(
+                    f"Missing {name} in cached snapshot for {args.repo_id}."
+                )
+            shutil.copy2(src, dst)
+            print(f"Copied {name}")
+
         return
 
     print(f"Locating cached snapshot for {args.repo_id}…", flush=True)
@@ -49,6 +69,16 @@ def main() -> None:
 
     print(f"Copying {snapshot_dir} -> {dest} (no symlinks)…", flush=True)
     shutil.copytree(snapshot_dir, dest, symlinks=False)
+
+    for name in ("preprocessor_config.json", "processor_config.json"):
+        src = snapshot_dir / name
+        dst = dest / name
+        if dst.exists():
+            continue
+        if not src.exists():
+            raise SystemExit(f"Missing {name} in cached snapshot for {args.repo_id}.")
+        shutil.copy2(src, dst)
+        print(f"Copied {name}")
 
     total_bytes = 0
     for root, _, files in os.walk(dest):

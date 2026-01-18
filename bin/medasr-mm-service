@@ -1,0 +1,7 @@
+#!/bin/zsh
+set -euo pipefail
+
+MEDASR_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+export PYTHONPATH="$MEDASR_DIR/src"
+
+exec "$MEDASR_DIR/.venv314/bin/python" -u -m medasr_local.cli.mm_service "$@"
