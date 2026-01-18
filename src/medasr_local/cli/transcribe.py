@@ -92,7 +92,7 @@ def main() -> None:
     project = Path(__file__).resolve().parents[3]
     config_path = project / "config.yaml"
 
-    model_name = "google/medasr"
+    model_name = "models/medasr"
     kenlm_path = project / "models" / "lm_6.kenlm"
 
     if config_path.exists():
