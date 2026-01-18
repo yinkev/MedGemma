@@ -47,7 +47,7 @@ echo "Installing ASR dependencies (Python 3.11)..."
 
 echo ""
 echo "Installing QA/TTS dependencies (Python 3.14)..."
-( source .venv314/bin/activate; uv pip install torch transformers accelerate pyyaml scipy pocket-tts protobuf sentencepiece )
+( source .venv314/bin/activate; uv pip install torch transformers accelerate pyyaml scipy pocket-tts protobuf sentencepiece pillow )
 
 if [ ! -d "models/medasr" ]; then
   echo ""
@@ -88,10 +88,13 @@ if [ ! -d "models/medgemma" ]; then
   echo ""
   echo "Pre-downloading MedGemma model..."
   .venv314/bin/python -c "
+from huggingface_hub import hf_hub_download
 from transformers import AutoModelForCausalLM, AutoTokenizer
 print('Downloading google/medgemma-1.5-4b-it model...')
 AutoTokenizer.from_pretrained('google/medgemma-1.5-4b-it')
 AutoModelForCausalLM.from_pretrained('google/medgemma-1.5-4b-it')
+hf_hub_download(repo_id='google/medgemma-1.5-4b-it', filename='preprocessor_config.json')
+hf_hub_download(repo_id='google/medgemma-1.5-4b-it', filename='processor_config.json')
 print('MedGemma model downloaded successfully!')
 "
 
