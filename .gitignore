@@ -14,6 +14,15 @@ __pycache__/
 # macOS
 .DS_Store
 
+# OpenCode
+# Keep skills in-repo, ignore everything else.
+.opencode/*
+!.opencode/skill/
+!.opencode/skill/**
+
+# Ignore skill build output
+.opencode/**/.build/
+
 # Local models / large artifacts
 models/
 *.kenlm
@@ -27,3 +36,5 @@ test_*.json
 
 # Native build output (optional; keep if you want to commit it)
 native/audiocapture
+macos/MedASRBar/.build/
+macos/MedASRBar/*.app/
