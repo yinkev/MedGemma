@@ -13,6 +13,7 @@ def main() -> None:
         "question", nargs="?", help="Question (optional, enters chat mode if omitted)"
     )
     parser.add_argument("-c", "--context-words", type=int, default=2000)
+    parser.add_argument("--max-tokens", type=int, default=256)
     args = parser.parse_args()
 
     transcript_path = Path(args.transcript)
@@ -25,12 +26,32 @@ def main() -> None:
     print(f"Loaded transcript ({word_count} words)")
     print("Loading MedGemma...")
 
-    qa = MedGemma()
+    model_name = "models/medgemma"
+    config_path = Path(__file__).resolve().parents[3] / "config.yaml"
+    if config_path.exists():
+        try:
+            import yaml
+
+            cfg = yaml.safe_load(config_path.read_text())
+            model_name = cfg.get("models", {}).get("medgemma", model_name)
+        except Exception:
+            pass
+
+    project = Path(__file__).resolve().parents[3]
+    if (project / model_name).exists():
+        model_name = str((project / model_name).resolve())
+
+    if not Path(model_name).exists():
+        raise SystemExit(
+            "MedGemma model not found locally. Run: .venv314/bin/python scripts/materialize_medgemma_model.py --out models/medgemma"
+        )
+
+    qa = MedGemma(model_name=model_name)
 
     if args.question:
         print(f"\nQuestion: {args.question}")
         print("\nMedGemma: ", end="", flush=True)
-        answer = qa.ask(context, args.question)
+        answer = qa.ask(context, args.question, max_tokens=args.max_tokens)
         print(answer)
     else:
         print("\n=== MedGemma Q&A Chat ===")
@@ -46,7 +67,7 @@ def main() -> None:
                     break
 
                 print("\nMedGemma: ", end="", flush=True)
-                answer = qa.ask(context, question)
+                answer = qa.ask(context, question, max_tokens=args.max_tokens)
                 print(answer)
 
             except (KeyboardInterrupt, EOFError):
