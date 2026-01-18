@@ -24,8 +24,9 @@ def pick_device(explicit: str | None) -> str:
 
 
 def load_asr(model_name: str, device: str | None = None) -> AsrBundle:
-    processor = AutoProcessor.from_pretrained(model_name)
-    model = AutoModelForCTC.from_pretrained(model_name)
+    kwargs = {"local_files_only": True}
+    processor = AutoProcessor.from_pretrained(model_name, **kwargs)
+    model = AutoModelForCTC.from_pretrained(model_name, **kwargs)
 
     chosen = pick_device(device)
     model = model.to(chosen)
