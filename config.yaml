@@ -1,8 +1,8 @@
 # MedASR Configuration
 
 models:
-  medasr: google/medasr
-  medgemma: google/medgemma-1.5-4b-it
+  medasr: models/medasr
+  medgemma: models/medgemma
   lm_path: models/lm_6.kenlm
 
 transcription:
