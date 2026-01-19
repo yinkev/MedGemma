@@ -20,6 +20,9 @@ __pycache__/
 !.opencode/skill/
 !.opencode/skill/**
 
+# Local agent scratch
+.sisyphus/
+
 # Ignore skill build output
 .opencode/**/.build/
 
