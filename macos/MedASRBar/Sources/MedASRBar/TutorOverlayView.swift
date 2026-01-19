@@ -2,100 +2,124 @@ import SwiftUI
 
 struct TutorOverlayView: View {
     @ObservedObject var controller: GemmaController
-    @State private var isCollapsed = false
-    @State private var answerText = ""
+    @ObservedObject private var windowRegistry = OverlayWindowRegistry.shared
+    @State private var captureError: String?
+    @State private var isCapturing: Bool = false
     
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Image(systemName: "wand.and.stars")
-                Text("MedGemma Tutor")
+                Text("Radiology Tutor")
                     .font(.headline)
+                    .foregroundStyle(.primary)
+                
                 Spacer()
-                Button(action: { withAnimation { isCollapsed.toggle() }}) {
-                    Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
-                }
-                .buttonStyle(.plain)
+                
+                Toggle("Click-through", isOn: $windowRegistry.isClickThrough)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
             }
-            .padding(10)
-            .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+            .padding()
+            .background(.ultraThinMaterial)
             
-            if !isCollapsed {
-                VStack(spacing: 12) {
-                    if let img = controller.currentTutorImage, let nsImage = NSImage(contentsOf: img) {
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let error = captureError {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        .padding()
+                        .background(Color.red.opacity(0.1))
+                        .cornerRadius(8)
+                    }
+                    
+                    if let imagePath = controller.currentTutorImage,
+                       let nsImage = NSImage(contentsOf: imagePath) {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(height: 120)
-                            .cornerRadius(6)
+                            .frame(maxHeight: 200)
+                            .cornerRadius(8)
                     } else {
-                        Button("Pick Image") {
-                            selectImage()
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo.badge.plus")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.secondary)
+                            Text("No image selected")
+                                .foregroundStyle(.secondary)
+                            
+                            Button(action: captureScreen) {
+                                HStack {
+                                    if isCapturing {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    } else {
+                                        Image(systemName: "camera.viewfinder")
+                                    }
+                                    Text(isCapturing ? "Capturing..." : "Capture Screen")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isCapturing)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(30)
+                        .background(Color.black.opacity(0.05))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [5]))
+                                .foregroundStyle(.tertiary)
+                        )
+                    }
+                    
+                    if controller.isTutorThinking {
+                        HStack {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Analyzing...")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                    } else if !controller.tutorQuestion.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Tutor Analysis")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundStyle(.secondary)
+                                .textCase(.uppercase)
+                            
+                            MarkdownView(text: controller.tutorQuestion)
+                        }
+                        .padding()
+                        .background(Color.blue.opacity(0.05))
+                        .cornerRadius(8)
+                    }
+                    
+                    if controller.currentTutorImage != nil {
+                         Button(action: captureScreen) {
+                            HStack {
+                                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                Text("Recapture Screen")
+                            }
                         }
                         .buttonStyle(.bordered)
-                    }
-                    
-                    if !controller.tutorQuestion.isEmpty {
-                        Text(controller.tutorQuestion)
-                            .font(.caption)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    
-                    HStack {
-                        TextField("Answer...", text: $answerText)
-                            .textFieldStyle(.roundedBorder)
-                        
-                        Button("Go") {
-                            controller.submitTutorAnswer(answerText)
-                        }
-                        .disabled(answerText.isEmpty)
-                    }
-                    
-                    if !controller.tutorGrading.isEmpty {
-                        Text(controller.tutorGrading)
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    
-                    if !controller.tutorAnswerRevealed.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Answer:")
-                                .font(.caption2)
-                                .bold()
-                                .foregroundStyle(.green)
-                            Text(controller.tutorAnswerRevealed)
-                                .font(.caption2)
-                                .foregroundStyle(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(8)
-                        .background(Color.green.opacity(0.1))
-                        .cornerRadius(6)
-                    }
-                    
-                    HStack {
-                        Button("Next Question") {
-                             if let p = controller.currentTutorImage?.path {
-                                 controller.generateTutorQuestion(imagePath: p)
-                             }
-                        }
-                        .font(.caption)
-                        
-                        Spacer()
-                        
-                        Button("Reveal") {
-                            controller.revealTutorAnswer()
-                        }
-                        .font(.caption)
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
                     }
                 }
-                .padding(10)
-                .background(Color.black.opacity(0.8))
+                .padding()
             }
         }
-        .frame(width: 300)
+        .background(.ultraThinMaterial)
         .cornerRadius(12)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -103,32 +127,52 @@ struct TutorOverlayView: View {
         )
     }
     
-    private func selectImage() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.level = .floating
-        if panel.runModal() == .OK {
-            if let path = panel.url?.path {
-                controller.generateTutorQuestion(imagePath: path)
+    private func captureScreen() {
+        isCapturing = true
+        captureError = nil
+
+        Task {
+            let window = OverlayWindowRegistry.shared.window
+            let wasVisible = window?.isVisible ?? false
+
+            do {
+                if wasVisible {
+                    window?.alphaValue = 0
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                }
+
+                let image = try await ScreenCaptureManager.shared.captureScreen()
+
+                if wasVisible {
+                    window?.alphaValue = 1
+                }
+
+                let fileURL = try ScreenCaptureManager.shared.saveImageToTemp(image)
+
+                await MainActor.run {
+                    controller.currentTutorImage = fileURL
+                    controller.generateTutorQuestion(imagePath: fileURL.path)
+                    isCapturing = false
+                }
+            } catch {
+                if wasVisible {
+                    window?.alphaValue = 1
+                }
+
+                await MainActor.run {
+                    captureError = error.localizedDescription
+                    isCapturing = false
+                }
             }
         }
     }
 }
 
-struct VisualEffectView: NSViewRepresentable {
-    var material: NSVisualEffectView.Material
-    var blendingMode: NSVisualEffectView.BlendingMode
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
+struct MarkdownView: View {
+    let text: String
+    
+    var body: some View {
+        Text(text)
+            .textSelection(.enabled)
     }
 }
