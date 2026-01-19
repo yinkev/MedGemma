@@ -41,7 +41,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   fail "python3 not found"
 fi
 
-if python3 - <<'PY'
+if python3 - "$MEDASR_DIR/src" <<'PY' >/dev/null 2>&1
 import ast
 import pathlib
 import sys
@@ -58,7 +58,7 @@ for path in sorted(root.rglob('*.py')):
 if errors:
     raise SystemExit(1)
 PY
-"$MEDASR_DIR/src" >/dev/null 2>&1; then
+then
   pass "python parse src"
 else
   fail "python parse src"
