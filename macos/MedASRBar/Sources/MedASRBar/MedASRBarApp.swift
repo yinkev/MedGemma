@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AppKit
 
 @main
 struct MedASRBarApp: App {
@@ -38,6 +39,12 @@ struct MedASRBarApp: App {
                     NSApp.activate(ignoringOtherApps: true)
                 }
                 .keyboardShortcut("t")
+
+                Button("Settings…") {
+                    openWindow(id: "settings")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .keyboardShortcut(",")
 
                 Divider()
 
@@ -115,6 +122,15 @@ struct MedASRBarApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
         }
+
+        WindowGroup("Settings", id: "settings") {
+            SettingsView()
+        }
+        .defaultSize(width: 450, height: 280)
+
+        Settings {
+            SettingsView()
+        }
     }
 
     init() {
@@ -127,6 +143,8 @@ struct MedASRBarApp: App {
                 }
             }
         }
+
+        ScreenCaptureManager.shared.cleanupOldCaptures()
     }
 }
 
@@ -136,33 +154,78 @@ extension Notification.Name {
 
 struct TranscriptView: View {
     @ObservedObject var controller: AppController
-    
+
+    @State private var isAutoScrollEnabled = true
+
+    private let bottomAnchorID = "transcript-bottom"
+
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: "waveform")
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
-            
+
             VStack(spacing: 4) {
                 Text("Transcript")
                     .font(.title2)
                     .fontWeight(.medium)
-                
+
                 Text(controller.inputSource.rawValue)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            
-            ScrollView {
-                if controller.lastEventText.isEmpty {
-                    Text("No audio detected yet.")
-                        .foregroundStyle(.secondary)
-                        .padding()
-                } else {
-                    Text(controller.lastEventText)
-                        .font(.body)
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 10) {
+                Button("Copy") {
+                    controller.copyTranscriptToClipboard()
+                }
+                .disabled(controller.transcriptLines.isEmpty)
+
+                Button("Clear") {
+                    controller.clear()
+                }
+                .disabled(controller.transcriptLines.isEmpty)
+
+                Spacer()
+
+                Toggle("Auto-scroll", isOn: $isAutoScrollEnabled)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal)
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if controller.transcriptLines.isEmpty {
+                            Text("No audio detected yet.")
+                                .foregroundStyle(.secondary)
+                                .padding()
+                        } else {
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                ForEach(controller.transcriptLines.indices, id: \.self) { index in
+                                    Text(controller.transcriptLines[index])
+                                        .font(.body)
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .padding()
+                        }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorID)
+                    }
+                }
+                .onChange(of: controller.transcriptFlushTick) { _, _ in
+                    guard isAutoScrollEnabled else { return }
+                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                }
+                .onAppear {
+                    guard isAutoScrollEnabled else { return }
+                    guard !controller.transcriptLines.isEmpty else { return }
+                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                 }
             }
             .background(Color(NSColor.textBackgroundColor))
