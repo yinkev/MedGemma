@@ -363,7 +363,7 @@ A SwiftUI menu bar prototype lives at `macos/MedASRBar`.
 
 What it supports today (dev-focused):
 - **Live transcription**: Start/Stop from the menu bar, then use **Open Transcript** to view a persistent, scrollable transcript buffer.
--  - Transcript UI updates are batched (flush ~200ms) to avoid jank during sustained output.
+  - Transcript UI updates are batched (flush ~200ms) to avoid jank during sustained output.
 - **Settings**: Use the menubar **Settings…** item to open the settings window.
   - Live chunking controls (chunk length + overlap)
   - Tutor options (armed interval, MCQ auto-submit)
