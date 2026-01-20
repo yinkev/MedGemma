@@ -9,12 +9,38 @@ enum GemmaBackendEvent: Sendable {
 actor MedGemmaProcess {
     private var process: Process?
     private var stdinHandle: FileHandle?
+
+    private func processDidTerminate(_ process: Process) {
+        stdinHandle = nil
+        if self.process === process {
+            self.process = nil
+        }
+    }
     
     func start(
         repoRoot: URL,
         onEvent: @escaping @Sendable (GemmaBackendEvent) -> Void
-    ) throws {
-        guard process == nil else { return }
+    ) async throws {
+        if let process {
+            if process.isRunning {
+                let deadline = Date().addingTimeInterval(1.5)
+                while process.isRunning, Date() < deadline {
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+
+            if !process.isRunning {
+                self.process = nil
+            }
+        }
+
+        guard process == nil else {
+            throw NSError(
+                domain: "MedGemmaProcess",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "MedGemma service is already running (or still stopping). Try again in a moment."]
+            )
+        }
         
         let pythonPath = repoRoot.appendingPathComponent("src").path
         let venvPython = repoRoot.appendingPathComponent(".venv314/bin/python")
@@ -86,11 +112,12 @@ actor MedGemmaProcess {
                 }
             }
         }.start()
-        
+
         p.terminationHandler = { proc in
             onEvent(.status("Service exited with code \(proc.terminationStatus)"))
+            Task { await self.processDidTerminate(proc) }
         }
-        
+
         try p.run()
         process = p
     }
@@ -115,11 +142,10 @@ actor MedGemmaProcess {
             try? stdinHandle.close()
         }
         self.stdinHandle = nil
-        
+
         if let process {
             process.terminate()
         }
-        self.process = nil
     }
     
     private static func parseEvent(_ jsonLine: String, rawData: Data) -> GemmaBackendEvent? {

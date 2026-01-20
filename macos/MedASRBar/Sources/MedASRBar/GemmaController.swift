@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import Foundation
 
 @MainActor
 class GemmaController: ObservableObject {
@@ -14,11 +15,29 @@ class GemmaController: ObservableObject {
     @Published var tutorGrading: String = ""
     @Published var tutorAnswerRevealed: String = ""
     @Published var isTutorThinking = false
-    @Published var currentTutorImage: URL?
+    @Published var currentTutorImage: URL? {
+        didSet {
+            guard let oldValue else { return }
+            guard oldValue != currentTutorImage else { return }
+            guard ScreenCaptureManager.shared.isManagedCaptureURL(oldValue) else { return }
+
+            let urlToDelete = oldValue
+            Task.detached {
+                try? FileManager.default.removeItem(at: urlToDelete)
+            }
+        }
+    }
+
+    var parsedTutorMCQ: TutorMCQ? {
+        TutorMCQParser.parse(from: tutorQuestion)
+    }
     
     private let process = MedGemmaProcess()
     private var repoRoot: URL?
     private let sessionId = UUID().uuidString
+    private var serviceRunID: UUID?
+
+    private var tutorRequestStartTimes: [String: Date] = [:]
     
     init() {
         do {
@@ -36,18 +55,24 @@ class GemmaController: ObservableObject {
         }
         
         serviceStatus = "Starting MedGemma..."
-        
+
+        let runID = UUID()
+        serviceRunID = runID
+
         Task {
             do {
                 try await process.start(repoRoot: repoRoot) { [weak self] event in
                     Task { @MainActor in
-                        self?.handle(event)
+                        guard let self else { return }
+                        guard self.serviceRunID == runID else { return }
+                        self.handle(event)
                     }
                 }
                 isServiceRunning = true
                 serviceStatus = "MedGemma Active"
             } catch {
                 isServiceRunning = false
+                serviceRunID = nil
                 lastError = error.localizedDescription
                 serviceStatus = "Failed to start"
             }
@@ -58,6 +83,7 @@ class GemmaController: ObservableObject {
         Task {
             await process.stop()
             isServiceRunning = false
+            serviceRunID = nil
             serviceStatus = "Ready"
         }
     }
@@ -87,13 +113,22 @@ class GemmaController: ObservableObject {
         tutorGrading = ""
         tutorAnswerRevealed = ""
 
+        let maxTokens = tutorMaxTokens(for: "tutor_next")
+        tutorRequestStartTimes["tutor_next"] = Date()
+
         Task {
+            var payload: [String: Any] = [
+                "session_id": sessionId,
+                "image_path": imagePath
+            ]
+
+            if let maxTokens {
+                payload["max_tokens"] = maxTokens
+            }
+
             await process.send(
                 task: "tutor_next",
-                payload: [
-                    "session_id": sessionId,
-                    "image_path": imagePath
-                ]
+                payload: payload
             )
         }
     }
@@ -109,15 +144,24 @@ class GemmaController: ObservableObject {
             return
         }
 
+        let maxTokens = tutorMaxTokens(for: "tutor_grade")
+        tutorRequestStartTimes["tutor_grade"] = Date()
+
         Task {
+            var payload: [String: Any] = [
+                "session_id": sessionId,
+                "image_path": imagePath,
+                "prompt": tutorQuestion,
+                "user_answer": answer
+            ]
+
+            if let maxTokens {
+                payload["max_tokens"] = maxTokens
+            }
+
             await process.send(
                 task: "tutor_grade",
-                payload: [
-                    "session_id": sessionId,
-                    "image_path": imagePath,
-                    "prompt": tutorQuestion,
-                    "user_answer": answer
-                ]
+                payload: payload
             )
         }
     }
@@ -132,13 +176,22 @@ class GemmaController: ObservableObject {
             return
         }
 
+        let maxTokens = tutorMaxTokens(for: "tutor_reveal")
+        tutorRequestStartTimes["tutor_reveal"] = Date()
+
         Task {
+            var payload: [String: Any] = [
+                "session_id": sessionId,
+                "image_path": imagePath
+            ]
+
+            if let maxTokens {
+                payload["max_tokens"] = maxTokens
+            }
+
             await process.send(
                 task: "tutor_reveal",
-                payload: [
-                    "session_id": sessionId,
-                    "image_path": imagePath
-                ]
+                payload: payload
             )
         }
     }
@@ -166,6 +219,11 @@ class GemmaController: ObservableObject {
             
             guard let json = try? JSONSerialization.jsonObject(with: dataBytes) as? [String: Any],
                   let task = json["task"] as? String else { return }
+
+            if task.hasPrefix("tutor_"), let start = tutorRequestStartTimes.removeValue(forKey: task) {
+                let elapsedMs = Int(Date().timeIntervalSince(start) * 1000)
+                print("\(task)_ms=\(elapsedMs)")
+            }
             
             switch task {
             case "path_report":
@@ -186,6 +244,30 @@ class GemmaController: ObservableObject {
                 }
             default:
                 break
+            }
+        }
+    }
+
+    private func tutorMaxTokens(for task: String) -> Int? {
+        let presetRaw = UserDefaults.standard.string(forKey: "tutorTokenPreset") ?? "balanced"
+        let preset = presetRaw.lowercased()
+
+        switch preset {
+        case "fast":
+            switch task {
+            case "tutor_next": return 128
+            case "tutor_grade": return 128
+            case "tutor_reveal": return 192
+            default: return nil
+            }
+        case "quality":
+            return nil
+        default:
+            switch task {
+            case "tutor_next": return 192
+            case "tutor_grade": return 192
+            case "tutor_reveal": return 256
+            default: return nil
             }
         }
     }

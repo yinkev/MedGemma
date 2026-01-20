@@ -10,14 +10,42 @@ actor PythonASRProcess {
     private var process: Process?
     private var stdinHandle: FileHandle?
 
+    private func processDidTerminate(_ process: Process) {
+        stdinHandle = nil
+        if self.process === process {
+            self.process = nil
+        }
+    }
+
     func start(
         python: URL,
         repoRoot: URL,
         pythonPath: String,
         modelPath: String,
+        chunkLength: Double,
+        overlap: Double,
         onEvent: @escaping @Sendable (BackendEvent) -> Void
-    ) throws {
-        guard process == nil else { return }
+    ) async throws {
+        if let process {
+            if process.isRunning {
+                let deadline = Date().addingTimeInterval(1.5)
+                while process.isRunning, Date() < deadline {
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+
+            if !process.isRunning {
+                self.process = nil
+            }
+        }
+
+        guard process == nil else {
+            throw NSError(
+                domain: "PythonASRProcess",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "ASR backend is already running (or still stopping). Try again in a moment."]
+            )
+        }
 
         let p = Process()
         p.executableURL = python
@@ -27,9 +55,9 @@ actor PythonASRProcess {
             "-m",
             "medasr_local.cli.stream",
             "--chunk-s",
-            "1.0",
+            String(format: "%.1f", chunkLength),
             "--overlap",
-            "0.0",
+            String(format: "%.2f", overlap),
             "--no-lm",
             "--model",
             modelPath,
@@ -95,6 +123,7 @@ actor PythonASRProcess {
 
         p.terminationHandler = { proc in
             onEvent(.status("python_exit: \(proc.terminationStatus)"))
+            Task { await self.processDidTerminate(proc) }
         }
 
         try p.run()
@@ -110,12 +139,11 @@ actor PythonASRProcess {
         if let stdinHandle {
             try? stdinHandle.close()
         }
-        self.stdinHandle = nil
+        stdinHandle = nil
 
         if let process {
             process.terminate()
         }
-        self.process = nil
     }
 
     private static func parseEvent(_ jsonLine: String) -> BackendEvent? {

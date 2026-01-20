@@ -1,11 +1,36 @@
 import Foundation
 
-final class NativeAudioCapture {
+actor NativeAudioCapture {
     private var process: Process?
     private var pipe: Pipe?
 
-    func start(onPCM16: @escaping @Sendable (Data) -> Void) throws {
-        guard process == nil else { return }
+    private func processDidTerminate(_ process: Process) async {
+        if self.process === process {
+            self.process = nil
+        }
+    }
+
+    func start(onPCM16: @escaping @Sendable (Data) -> Void) async throws {
+        if let process {
+            if process.isRunning {
+                let deadline = Date().addingTimeInterval(1.5)
+                while process.isRunning, Date() < deadline {
+                    try await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+
+            if !process.isRunning {
+                self.process = nil
+            }
+        }
+
+        guard process == nil else {
+            throw NSError(
+                domain: "NativeAudioCapture",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "System audio capture is already running (or still stopping). Try again in a moment."]
+            )
+        }
 
         let executable = try resolveExecutable()
 
@@ -17,6 +42,13 @@ final class NativeAudioCapture {
 
         let stderr = Pipe()
         process.standardError = stderr
+
+        process.terminationHandler = { [weak self] proc in
+            Task {
+                guard let self else { return }
+                await self.processDidTerminate(proc)
+            }
+        }
 
         try process.run()
 
@@ -45,7 +77,6 @@ final class NativeAudioCapture {
         if let process {
             process.terminate()
         }
-        process = nil
     }
 
     private func resolveExecutable() throws -> URL {

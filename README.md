@@ -361,6 +361,28 @@ qa:
 
 A SwiftUI menu bar prototype lives at `macos/MedASRBar`.
 
+What it supports today (dev-focused):
+- **Live transcription**: Start/Stop from the menu bar, then use **Open Transcript** to view a persistent, scrollable transcript buffer.
+  - Transcript UI updates are batched (flush ~200ms) to avoid jank during sustained output.
+- **Settings**: Use the menubar **Settings…** item to open the settings window.
+  - Live chunking controls (chunk length + overlap)
+  - Tutor options (armed interval, MCQ auto-submit)
+  - Tutor performance controls:
+    - **Token preset** (`fast` / `balanced` / `quality`) controls `max_tokens` for tutor generation.
+    - **Capture max dimension** (default 1400px) downscales screenshots before sending to the tutor.
+  - Note: overlap must satisfy `0.0 <= overlap < 0.9` (Python enforces this).
+- **Tutor Overlay (HUD)**: Capture screen / drop an image / choose an image, then answer by typing/clicking and pressing Enter/Submit.
+  - If the model output looks like an MCQ (A–D), options render as clickable buttons that fill the answer field.
+  - **Armed mode** periodically captures the screen on a fixed interval (10/15/20/30s) to generate ongoing questions.
+  - While generating, the overlay shows **Generating…** (no misleading countdown).
+  - For latency measurement/tuning, the app prints:
+    - `tutor_capture_ms=<ms>` (capture + save)
+    - `tutor_next_ms=<ms>`, `tutor_grade_ms=<ms>`, `tutor_reveal_ms=<ms>`
+
+Privacy / retention notes:
+- Screenshots captured for tutor flows are stored under a temporary directory and treated as ephemeral; old temp captures are cleaned up when a new capture replaces them.
+- Screen capture requires **Screen Recording** permission.
+
 Current constraints (dev-only):
 - Assumes the app runs inside the repo (it searches upwards for `src/medasr_local`).
 - Assumes a pre-built backend at `.venv/bin/python` and a localized ASR snapshot at `models/medasr`.

@@ -4,6 +4,11 @@ struct TutorOverlayView: View {
     @ObservedObject var controller: GemmaController
     @ObservedObject private var windowRegistry = OverlayWindowRegistry.shared
 
+    @AppStorage("tutorArmedInterval") private var tutorArmedInterval: Int = 20
+    @AppStorage("tutorMCQAutoSubmit") private var tutorMCQAutoSubmit: Bool = false
+
+    @StateObject private var armedRunner = TutorArmedRunner()
+
     @FocusState private var isAnswerFocused: Bool
 
     @State private var captureError: String?
@@ -11,6 +16,8 @@ struct TutorOverlayView: View {
     @State private var isCapturing: Bool = false
     @State private var isDropTargeted: Bool = false
     @State private var thinkingLabel: String = ""
+    @State private var isArmed: Bool = false
+    @State private var selectedMCQLabel: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,12 +72,35 @@ struct TutorOverlayView: View {
         .onChange(of: controller.tutorQuestion) { _, newValue in
             if !newValue.isEmpty {
                 isAnswerFocused = true
+                selectedMCQLabel = nil
+                answerText = ""
             }
         }
         .onChange(of: controller.isTutorThinking) { _, newValue in
             if !newValue {
                 thinkingLabel = ""
             }
+        }
+        .onChange(of: isArmed) { _, newValue in
+            if newValue {
+                armedRunner.start(intervalSeconds: tutorArmedInterval, controller: controller)
+            } else {
+                armedRunner.stop()
+            }
+        }
+        .onChange(of: tutorArmedInterval) { _, _ in
+            if isArmed {
+                armedRunner.start(intervalSeconds: tutorArmedInterval, controller: controller)
+            }
+        }
+        .onChange(of: armedRunner.lastError) { _, newValue in
+            if newValue != nil {
+                isArmed = false
+            }
+        }
+        .onDisappear {
+            armedRunner.stop()
+            isArmed = false
         }
     }
 
@@ -87,14 +117,36 @@ struct TutorOverlayView: View {
 
             Spacer()
 
-            Toggle("Click-through", isOn: $windowRegistry.isClickThrough)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
+            VStack(alignment: .trailing, spacing: 4) {
+                HStack(spacing: 10) {
+                    Toggle("Armed", isOn: $isArmed)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .disabled(isCapturing)
+
+                    Toggle("Click-through", isOn: $windowRegistry.isClickThrough)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                }
+
+                if isArmed {
+                    if controller.isTutorThinking {
+                        Text("Generating…")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Next capture in \(armedRunner.secondsUntilNextCapture)s")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(.ultraThinMaterial)
     }
+
 
     private var clickThroughBanner: some View {
         HStack(spacing: 10) {
@@ -115,7 +167,7 @@ struct TutorOverlayView: View {
     }
 
     private var effectiveError: String? {
-        captureError ?? controller.lastError
+        captureError ?? armedRunner.lastError ?? controller.lastError
     }
 
     private func errorCard(_ text: String) -> some View {
@@ -182,6 +234,7 @@ struct TutorOverlayView: View {
                             controller.tutorGrading = ""
                             controller.tutorAnswerRevealed = ""
                             answerText = ""
+                            selectedMCQLabel = nil
                         }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
@@ -269,40 +322,97 @@ struct TutorOverlayView: View {
 
     private var actionTray: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Answer…", text: $answerText)
-                .textFieldStyle(.roundedBorder)
-                .focused($isAnswerFocused)
-                .onSubmit {
-                    submitAnswer()
-                }
+            answerField
+            Text("Type your answer and press Enter/Submit")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                Button("Next Question") {
-                    guard let imagePath = controller.currentTutorImage?.path else { return }
-                    thinkingLabel = "Generating question…"
-                    controller.generateTutorQuestion(imagePath: imagePath)
-                }
-                .buttonStyle(.bordered)
-                .disabled(controller.isTutorThinking || isCapturing)
+            mcqOptions
 
-                Button("Submit") {
-                    submitAnswer()
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(answerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("Reveal") {
-                    thinkingLabel = "Revealing…"
-                    controller.revealTutorAnswer()
-                }
-                .buttonStyle(.bordered)
-                .disabled(controller.isTutorThinking || isCapturing)
-            }
+            actionButtons
         }
         .padding(12)
         .background(Color.black.opacity(0.04))
         .cornerRadius(14)
+    }
+
+    private var trimmedAnswerText: String {
+        answerText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var answerField: some View {
+        TextField("Answer…", text: $answerText)
+            .textFieldStyle(.roundedBorder)
+            .focused($isAnswerFocused)
+            .onSubmit {
+                submitAnswer()
+            }
+    }
+
+    @ViewBuilder
+    private var mcqOptions: some View {
+        if let mcq = controller.parsedTutorMCQ {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(mcq.options) { option in
+                    mcqButton(option)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mcqButton(_ option: TutorMCQ.Option) -> some View {
+        let isSelected = selectedMCQLabel == option.label
+
+        if isSelected {
+            Button(option.displayText) {
+                selectedMCQLabel = option.label
+                answerText = option.label
+                isAnswerFocused = true
+                if tutorMCQAutoSubmit {
+                    submitAnswer()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(controller.isTutorThinking || isCapturing)
+        } else {
+            Button(option.displayText) {
+                selectedMCQLabel = option.label
+                answerText = option.label
+                isAnswerFocused = true
+                if tutorMCQAutoSubmit {
+                    submitAnswer()
+                }
+            }
+            .buttonStyle(.bordered)
+            .disabled(controller.isTutorThinking || isCapturing)
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 10) {
+            Button("Next Question") {
+                guard let imagePath = controller.currentTutorImage?.path else { return }
+                thinkingLabel = "Generating question…"
+                controller.generateTutorQuestion(imagePath: imagePath)
+            }
+            .buttonStyle(.bordered)
+            .disabled(controller.isTutorThinking || isCapturing)
+
+            Button("Submit") {
+                submitAnswer()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(trimmedAnswerText.isEmpty)
+
+            Button("Reveal") {
+                thinkingLabel = "Revealing…"
+                controller.revealTutorAnswer()
+            }
+            .buttonStyle(.bordered)
+            .disabled(controller.isTutorThinking || isCapturing)
+        }
     }
 
     private var gradingCard: some View {
@@ -341,6 +451,7 @@ struct TutorOverlayView: View {
         thinkingLabel = "Grading…"
         controller.submitTutorAnswer(trimmed)
         answerText = ""
+        selectedMCQLabel = nil
     }
 
     private func pickImage() {
@@ -384,6 +495,10 @@ struct TutorOverlayView: View {
         isCapturing = true
         captureError = nil
         thinkingLabel = "Capturing screen…"
+        selectedMCQLabel = nil
+        answerText = ""
+        
+        let startTime = DispatchTime.now()
 
         Task {
             let window = OverlayWindowRegistry.shared.window
@@ -402,9 +517,12 @@ struct TutorOverlayView: View {
                 }
 
                 let fileURL = try ScreenCaptureManager.shared.saveImageToTemp(image)
+                
+                let endTime = DispatchTime.now()
+                let ms = (endTime.uptimeNanoseconds - startTime.uptimeNanoseconds) / 1_000_000
+                print("tutor_capture_ms=\(ms)")
 
                 await MainActor.run {
-                    controller.currentTutorImage = fileURL
                     thinkingLabel = "Generating question…"
                     controller.generateTutorQuestion(imagePath: fileURL.path)
                     isCapturing = false
